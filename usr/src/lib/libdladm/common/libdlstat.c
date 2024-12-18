@@ -595,6 +595,24 @@ static dladm_stat_desc_t  dladm_stat_table[] = {
 };
 
 /* Internal functions */
+static void
+dlstat_free_dladm(dladm_stat_chain_t *item)
+{
+	free(item->dc_statentry);
+	free(item);
+}
+
+void
+dladm_link_stat_free(dladm_stat_chain_t *curr)
+{
+	while (curr != NULL) {
+		dladm_stat_chain_t	*tofree = curr;
+
+		curr = curr->dc_next;
+		dlstat_free_dladm(tofree);
+	}
+}
+
 static void *
 dlstat_diff_stats(void *arg1, void *arg2, dladm_stat_type_t stattype)
 {
@@ -952,12 +970,17 @@ i_dlstat_query_stats(dladm_handle_t handle, const char *modname,
 			continue;
 
 		curr = malloc(sizeof (dladm_stat_chain_t));
-		if (curr == NULL)
+		if (curr == NULL) {
+			dladm_link_stat_free(head);
+			head = NULL;
 			break;
+		}
 
 		curr->dc_statentry = fn(dladm_dld_kcp(handle), ksp, index);
 		if (curr->dc_statentry == NULL) {
 			free(curr);
+			dladm_link_stat_free(head);
+			head = NULL;
 			break;
 		}
 
@@ -1133,8 +1156,10 @@ i_dlstat_rx_bcast_stats(dladm_handle_t handle, const char *linkname)
 		goto done;
 
 	rx_lane_stat_entry = calloc(1, sizeof (rx_lane_stat_entry_t));
-	if (rx_lane_stat_entry == NULL)
+	if (rx_lane_stat_entry == NULL) {
+		free(misc_stat_entry);
 		goto done;
+	}
 
 	rx_lane_stat_entry->rle_index = DLSTAT_INVALID_ENTRY;
 	rx_lane_stat_entry->rle_id = L_BCAST;
@@ -1152,6 +1177,7 @@ i_dlstat_rx_bcast_stats(dladm_handle_t handle, const char *linkname)
 	head = malloc(sizeof (dladm_stat_chain_t));
 	if (head == NULL) {
 		free(rx_lane_stat_entry);
+		free(misc_stat_entry);
 		goto done;
 	}
 
@@ -1175,8 +1201,10 @@ i_dlstat_rx_defunctlane_stats(dladm_handle_t handle, const char *linkname)
 		goto done;
 
 	rx_lane_stat_entry = calloc(1, sizeof (rx_lane_stat_entry_t));
-	if (rx_lane_stat_entry == NULL)
+	if (rx_lane_stat_entry == NULL) {
+		free(misc_stat_entry);
 		goto done;
+	}
 
 	rx_lane_stat_entry->rle_index = DLSTAT_INVALID_ENTRY;
 	rx_lane_stat_entry->rle_id = L_DFNCT;
@@ -1201,11 +1229,14 @@ i_dlstat_rx_defunctlane_stats(dladm_handle_t handle, const char *linkname)
 	head = malloc(sizeof (dladm_stat_chain_t));
 	if (head == NULL) {
 		free(rx_lane_stat_entry);
+		free(misc_stat_entry);
 		goto done;
 	}
 
 	head->dc_statentry = rx_lane_stat_entry;
 	head->dc_next = NULL;
+
+	free(misc_stat_entry);
 
 done:
 	return (head);
@@ -1357,8 +1388,10 @@ i_dlstat_tx_bcast_stats(dladm_handle_t handle, const char *linkname)
 		goto done;
 
 	tx_lane_stat_entry = calloc(1, sizeof (tx_lane_stat_entry_t));
-	if (tx_lane_stat_entry == NULL)
+	if (tx_lane_stat_entry == NULL) {
+		free(misc_stat_entry);
 		goto done;
+	}
 
 	tx_lane_stat_entry->tle_index = DLSTAT_INVALID_ENTRY;
 	tx_lane_stat_entry->tle_id = L_BCAST;
@@ -1373,6 +1406,7 @@ i_dlstat_tx_bcast_stats(dladm_handle_t handle, const char *linkname)
 
 	head = malloc(sizeof (dladm_stat_chain_t));
 	if (head == NULL) {
+		free(misc_stat_entry);
 		free(tx_lane_stat_entry);
 		goto done;
 	}
@@ -1397,8 +1431,10 @@ i_dlstat_tx_defunctlane_stats(dladm_handle_t handle, const char *linkname)
 		goto done;
 
 	tx_lane_stat_entry = calloc(1, sizeof (tx_lane_stat_entry_t));
-	if (tx_lane_stat_entry == NULL)
+	if (tx_lane_stat_entry == NULL) {
+		free(misc_stat_entry);
 		goto done;
+	}
 
 	tx_lane_stat_entry->tle_index = DLSTAT_INVALID_ENTRY;
 	tx_lane_stat_entry->tle_id = L_DFNCT;
@@ -1413,12 +1449,14 @@ i_dlstat_tx_defunctlane_stats(dladm_handle_t handle, const char *linkname)
 	head = malloc(sizeof (dladm_stat_chain_t));
 	if (head == NULL) {
 		free(tx_lane_stat_entry);
+		free(misc_stat_entry);
 		goto done;
 	}
 
 	head->dc_statentry = tx_lane_stat_entry;
 	head->dc_next = NULL;
 
+	free(misc_stat_entry);
 done:
 	return (head);
 }
@@ -1499,8 +1537,10 @@ dlstat_rx_lane_total_stats(dladm_handle_t dh, datalink_id_t linkid)
 		goto done;
 
 	total_stats = calloc(1, sizeof (rx_lane_stat_entry_t));
-	if (total_stats == NULL)
+	if (total_stats == NULL) {
+		dladm_link_stat_free(rx_lane_head);
 		goto done;
+	}
 
 	total_stats->rle_index = DLSTAT_INVALID_ENTRY;
 	total_stats->rle_id = DLSTAT_INVALID_ENTRY;
@@ -1516,6 +1556,7 @@ dlstat_rx_lane_total_stats(dladm_handle_t dh, datalink_id_t linkid)
 	total_head = malloc(sizeof (dladm_stat_chain_t));
 	if (total_head == NULL) {
 		free(total_stats);
+		dladm_link_stat_free(rx_lane_head);
 		goto done;
 	}
 
@@ -1523,7 +1564,7 @@ dlstat_rx_lane_total_stats(dladm_handle_t dh, datalink_id_t linkid)
 	(void) strlcpy(total_head->dc_statheader, "mac_rx_lane_total",
 	    sizeof (total_head->dc_statheader));
 	total_head->dc_next = NULL;
-	free(rx_lane_head);
+	dladm_link_stat_free(rx_lane_head);
 
 done:
 	return (total_head);
@@ -1543,8 +1584,10 @@ dlstat_tx_lane_total_stats(dladm_handle_t dh, datalink_id_t linkid)
 		goto done;
 
 	total_stats = calloc(1, sizeof (tx_lane_stat_entry_t));
-	if (total_stats == NULL)
+	if (total_stats == NULL) {
+		dladm_link_stat_free(tx_lane_head);
 		goto done;
+	}
 
 	total_stats->tle_index = DLSTAT_INVALID_ENTRY;
 	total_stats->tle_id = DLSTAT_INVALID_ENTRY;
@@ -1560,6 +1603,7 @@ dlstat_tx_lane_total_stats(dladm_handle_t dh, datalink_id_t linkid)
 	total_head = malloc(sizeof (dladm_stat_chain_t));
 	if (total_head == NULL) {
 		free(total_stats);
+		dladm_link_stat_free(tx_lane_head);
 		goto done;
 	}
 
@@ -1567,7 +1611,7 @@ dlstat_tx_lane_total_stats(dladm_handle_t dh, datalink_id_t linkid)
 	(void) strlcpy(total_head->dc_statheader, "mac_tx_lane_total",
 	    sizeof (total_head->dc_statheader));
 	total_head->dc_next = NULL;
-	free(tx_lane_head);
+	dladm_link_stat_free(tx_lane_head);
 
 done:
 	return (total_head);
@@ -1960,7 +2004,7 @@ dlstat_rx_ring_total_stats(dladm_handle_t dh, datalink_id_t linkid)
 	(void) strlcpy(total_head->dc_statheader, "mac_rx_ring_total",
 	    sizeof (total_head->dc_statheader));
 	total_head->dc_next = NULL;
-	free(rx_ring_head);
+	dlstat_free_dladm(rx_ring_head);
 
 done:
 	return (total_head);
@@ -2003,7 +2047,7 @@ dlstat_tx_ring_total_stats(dladm_handle_t dh, datalink_id_t linkid)
 	(void) strlcpy(total_head->dc_statheader, "mac_tx_ring_total",
 	    sizeof (total_head->dc_statheader));
 	total_head->dc_next = NULL;
-	free(tx_ring_head);
+	dlstat_free_dladm(tx_ring_head);
 
 done:
 	return (total_head);
@@ -2085,8 +2129,8 @@ dlstat_total_stats(dladm_handle_t dh, datalink_id_t linkid)
 	(void) strlcpy(head->dc_statheader, "mac_lane_total",
 	    sizeof (head->dc_statheader));
 	head->dc_next = NULL;
-	free(rx_total);
-	free(tx_total);
+	dlstat_free_dladm(rx_total);
+	dlstat_free_dladm(tx_total);
 
 done:
 	return (head);
@@ -2350,18 +2394,6 @@ done:
 	return (diff_head);
 }
 
-void
-dladm_link_stat_free(dladm_stat_chain_t *curr)
-{
-	while (curr != NULL) {
-		dladm_stat_chain_t	*tofree = curr;
-
-		curr = curr->dc_next;
-		free(tofree->dc_statentry);
-		free(tofree);
-	}
-}
-
 /* Query all link stats */
 static name_value_stat_t *
 i_dlstat_convert_stats(void *stats, stat_info_t stats_list[], uint_t size)
@@ -2500,8 +2532,7 @@ dladm_link_stat_query_all_free(dladm_stat_chain_t *curr)
 		}
 
 		curr = curr->dc_next;
-		free(nv_entry);
-		free(tofree);
+		dlstat_free_dladm(tofree);
 	}
 }
 
