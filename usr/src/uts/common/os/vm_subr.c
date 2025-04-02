@@ -183,12 +183,28 @@ default_physio(int (*strat)(struct buf *), struct buf *bp, dev_t dev,
 	}
 
 	while (uio->uio_iovcnt > 0) {
+		size_t total_len;
+		char *base_addr;
+		int merged_iovs = 1;
+
 		iov = uio->uio_iov;
+		total_len = iov->iov_len;
+		base_addr = iov->iov_base;
 
 		bp->b_error = 0;
 		bp->b_proc = procp;
 
-		while (iov->iov_len > 0) {
+		while (merged_iovs < uio->uio_iovcnt) {
+			struct iovec *next = &uio->uio_iov[merged_iovs];
+			if (next->iov_base == (base_addr + total_len)) {
+				total_len += next->iov_len;
+				merged_iovs++;
+			} else {
+				break;
+			}
+		}
+
+		while (total_len > 0) {
 			if (uio->uio_resid == 0)
 				break;
 			if (uio->uio_loffset < 0) {
@@ -218,8 +234,8 @@ default_physio(int (*strat)(struct buf *), struct buf *bp, dev_t dev,
 			 * each time through, updating the iov's base address
 			 * instead.
 			 */
-			a = bp->b_un.b_addr = iov->iov_base;
-			bp->b_bcount = MIN(iov->iov_len, uio->uio_resid);
+			a = bp->b_un.b_addr = base_addr;
+			bp->b_bcount = MIN(total_len, uio->uio_resid);
 			(*mincnt)(bp);
 			c = bp->b_bcount;
 
@@ -262,10 +278,11 @@ default_physio(int (*strat)(struct buf *), struct buf *bp, dev_t dev,
 			    "as_pageunlock_end:");
 
 			c -= bp->b_resid;
-			iov->iov_base += c;
-			iov->iov_len -= c;
+			base_addr += c;
+			total_len -= c;
 			uio->uio_resid -= c;
 			uio->uio_loffset += c;
+
 			/* bp->b_resid - temp kludge for tape drives */
 			if (bp->b_resid || error)
 				break;
@@ -274,8 +291,20 @@ default_physio(int (*strat)(struct buf *), struct buf *bp, dev_t dev,
 		/* bp->b_resid - temp kludge for tape drives */
 		if (bp->b_resid || error)
 			break;
-		uio->uio_iov++;
-		uio->uio_iovcnt--;
+
+		while (merged_iovs > 0)
+			iov = uio->uio_iov;
+
+			if (iov->iov_len == 0) {
+				uio->uio_iov++;
+				uio->uio_iovcnt--;
+				merged_iovs--;
+			} else {
+				iov->iov_base = base_addr;
+				iov->iov_len = total_len;
+				break;
+			}
+		}
 	}
 
 	if (allocbuf) {
