@@ -382,6 +382,9 @@ feature_enable_sync(spa_t *spa, zfeature_info_t *feature, dmu_tx_t *tx)
 	    !spa_feature_is_active(spa, SPA_FEATURE_ENCRYPTION) &&
 	    feature->fi_feature == SPA_FEATURE_BOOKMARK_V2)
 		spa->spa_errata = 0;
+
+	if (feature->fi_feature == SPA_FEATURE_HEAD_ERRLOG)
+		spa_upgrade_errlog(spa, tx);
 }
 
 static void

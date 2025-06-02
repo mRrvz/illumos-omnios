@@ -128,6 +128,7 @@ static const char *features_for_read[] = {
 	"com.datto:resilver_defer",
 	"com.delphix:device_removal",
 	"com.delphix:obsolete_counts",
+	"com.delphix:head_errlog",
 	NULL
 };
 

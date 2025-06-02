@@ -421,13 +421,17 @@ zpool_feature_init(void)
 	    "Support for defering new resilvers when one is already running.",
 	    ZFEATURE_FLAG_READONLY_COMPAT, ZFEATURE_TYPE_BOOLEAN, NULL);
 
+	zfeature_register(SPA_FEATURE_HEAD_ERRLOG,
+		"com.delphix:head_errlog", "head_errlog",
+		"Support for per-dataset on-disk error logs.",
+		ZFEATURE_FLAG_ACTIVATE_ON_ENABLE, ZFEATURE_TYPE_BOOLEAN, NULL);
+
 	/*
 	 * Slots for:
 	 * SPA_FEATURE_DEVICE_REBUILD
 	 * SPA_FEATURE_ZSTD_COMPRESS
 	 * SPA_FEATURE_DRAID
 	 * SPA_FEATURE_ZILSAXATTR
-	 * SPA_FEATURE_HEAD_ERRLOG
 	 * SPA_FEATURE_BLAKE3
 	 * SPA_FEATURE_BLOCK_CLONING
 	 * SPA_FEATURE_AVZ_V2

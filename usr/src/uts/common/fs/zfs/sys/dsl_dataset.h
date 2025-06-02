@@ -468,6 +468,9 @@ boolean_t dsl_dataset_feature_is_active(dsl_dataset_t *ds, spa_feature_t f);
 boolean_t dsl_dataset_get_uint64_array_feature(dsl_dataset_t *ds,
     spa_feature_t f, uint64_t *outlength, uint64_t **outp);
 
+int dsl_dataset_oldest_snapshot(spa_t *spa, uint64_t head_ds, uint64_t min_txg,
+    uint64_t *oldest_dsobj);
+
 #ifdef ZFS_DEBUG
 #define	dprintf_ds(ds, fmt, ...) do { \
 	if (zfs_flags & ZFS_DEBUG_DPRINTF) { \

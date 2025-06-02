@@ -287,6 +287,13 @@ typedef struct zbookmark_phys {
 	uint64_t	zb_blkid;
 } zbookmark_phys_t;
 
+typedef struct zbookmark_err_phys {
+	uint64_t	zb_object;
+	int64_t		zb_level;
+	uint64_t	zb_blkid;
+	uint64_t	zb_birth;
+} zbookmark_err_phys_t;
+
 #define	SET_BOOKMARK(zb, objset, object, level, blkid)  \
 {                                                       \
 	(zb)->zb_objset = objset;                       \

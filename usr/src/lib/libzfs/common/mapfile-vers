@@ -75,14 +75,14 @@ $if _ELF64
 	spa_feature_table		{
 					  ASSERT = {
 						  TYPE = OBJECT;
-						  SIZE = addrsize[162];
+						  SIZE = 1344;
 						};
 					};
 $elif _ELF32
 	spa_feature_table		{
 					  ASSERT = {
 						  TYPE = OBJECT;
-						  SIZE = addrsize[189];
+						  SIZE = 784;
 						};
 					};
 $else
