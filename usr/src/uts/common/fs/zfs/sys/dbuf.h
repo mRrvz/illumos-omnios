@@ -379,6 +379,9 @@ void dbuf_new_size(dmu_buf_impl_t *db, int size, dmu_tx_t *tx);
 void dbuf_init(void);
 void dbuf_fini(void);
 
+int dbuf_dnode_findbp(dnode_t *dn, uint64_t level, uint64_t blkid,
+    blkptr_t *bp, uint16_t *datablkszsec, uint8_t *indblkshift);
+
 boolean_t dbuf_is_metadata(dmu_buf_impl_t *db);
 
 #define	DBUF_GET_BUFC_TYPE(_db)	\

@@ -2591,6 +2591,36 @@ dbuf_create(dnode_t *dn, uint8_t level, uint64_t blkid,
 	return (db);
 }
 
+/*
+ * This function returns a block pointer and information about the object,
+ * given a dnode and a block.  This is a publicly accessible version of
+ * dbuf_findbp that only returns some information, rather than the
+ * dbuf.  Note that the dnode passed in must be held, and the dn_struct_rwlock
+ * should be locked as (at least) a reader.
+ */
+int
+dbuf_dnode_findbp(dnode_t *dn, uint64_t level, uint64_t blkid,
+    blkptr_t *bp, uint16_t *datablkszsec, uint8_t *indblkshift)
+{
+	dmu_buf_impl_t *dbp = NULL;
+	blkptr_t *bp2;
+	int err = 0;
+	ASSERT(RW_LOCK_HELD(&dn->dn_struct_rwlock));
+
+	err = dbuf_findbp(dn, level, blkid, B_FALSE, &dbp, &bp2);
+	if (err == 0) {
+		*bp = *bp2;
+		if (dbp != NULL)
+			dbuf_rele(dbp, NULL);
+		if (datablkszsec != NULL)
+			*datablkszsec = dn->dn_phys->dn_datablkszsec;
+		if (indblkshift != NULL)
+			*indblkshift = dn->dn_phys->dn_indblkshift;
+	}
+
+	return (err);
+}
+
 typedef struct dbuf_prefetch_arg {
 	spa_t *dpa_spa;	/* The spa to issue the prefetch in. */
 	zbookmark_phys_t dpa_zb; /* The target block to prefetch. */
