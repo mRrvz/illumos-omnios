@@ -62,7 +62,7 @@ clobber:
 
 motd:	FRC
 	@-$(ECHO) "rebuilding motd"
-	@-$(ECHO) "OmniOS r$(ONNV_BUILDNUM)\t$(VERSION)\t$(RELEASE_DATE)" > motd
+	@-$(ECHO) "ISCRA r$(ONNV_BUILDNUM)\t$(RELEASE_DATE)" > motd
 	@$(NOT_RELEASE_BUILD)-$(ECHO) $(DEV_CM) | sed -e "s/@(#)//" >> motd
 	@-$(CAT) release_info >> motd
 
