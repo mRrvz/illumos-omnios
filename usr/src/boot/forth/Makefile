@@ -56,7 +56,9 @@ FILES +=	loader.rc
 
 # OmniOS additions
 FORTH +=	brand-omnios.4th
+FORTH +=	brand-iscra.4th
 FORTH +=	logo-omnios.4th
+FORTH +=	logo-iscra.4th
 FILES +=	illumos-small.png
 FILES +=	ooce.png
 FILES +=	fenix.png

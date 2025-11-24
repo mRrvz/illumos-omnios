@@ -46,6 +46,7 @@ $(i386_ONLY)dir path=boot/forth group=sys
 $(i386_ONLY)file path=boot/forth/beadm.4th group=sys mode=0444
 $(i386_ONLY)file path=boot/forth/beastie.4th group=sys mode=0444
 $(i386_ONLY)file path=boot/forth/brand-illumos.4th group=sys mode=0444
+$(i386_ONLY)file path=boot/forth/brand-iscra.4th group=sys mode=0444
 $(i386_ONLY)file path=boot/forth/brand-omnios.4th group=sys mode=0444
 $(i386_ONLY)file path=boot/forth/brand.4th group=sys mode=0444
 $(i386_ONLY)file path=boot/forth/check-password.4th group=sys mode=0444
@@ -55,6 +56,7 @@ $(i386_ONLY)file path=boot/forth/efi.4th group=sys mode=0444
 $(i386_ONLY)file path=boot/forth/frames.4th group=sys mode=0444
 $(i386_ONLY)file path=boot/forth/loader.4th group=sys mode=0444
 $(i386_ONLY)file path=boot/forth/logo-illumos.4th group=sys mode=0444
+$(i386_ONLY)file path=boot/forth/logo-iscra.4th group=sys mode=0444
 $(i386_ONLY)file path=boot/forth/logo-omnios.4th group=sys mode=0444
 $(i386_ONLY)file path=boot/forth/menu-commands.4th group=sys mode=0444
 $(i386_ONLY)file path=boot/forth/menu.4th group=sys mode=0444
