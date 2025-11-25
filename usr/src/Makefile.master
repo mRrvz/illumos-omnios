@@ -966,9 +966,9 @@ UTS_LABEL=	$(RELEASE)
 # format.
 #
 THISYEAR :sh= date +%Y
-BOOTBANNER1=	OmniOS r$(ONNV_BUILDNUM) Version ^v ^w-bit
-BOOTBANNER2=	Copyright (c) 2012-2017 OmniTI Computer Consulting, Inc.
-BOOTBANNER3=	Copyright (c) 2017-$(THISYEAR) OmniOS Community Edition (OmniOSce) Association.
+BOOTBANNER1=	ISCRA r$(ONNV_BUILDNUM) Version ^v ^w-bit
+BOOTBANNER2=	Copyright (c) ARGO TECHNOLOGY EAST LLC
+BOOTBANNER3=
 BOOTBANNER4=
 BOOTBANNER5=
 
