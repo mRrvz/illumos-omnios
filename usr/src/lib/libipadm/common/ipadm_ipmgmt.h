@@ -220,7 +220,7 @@ typedef struct ipmgmt_initif_arg_s {
 	ipmgmt_door_cmd_type_t	ia_cmd;
 	uint32_t	ia_flags;
 	sa_family_t	ia_family;
-	size_t		ia_nvlsize;
+	uint32_t	ia_nvlsize;
 	/* packed nvl follows */
 } ipmgmt_initif_arg_t;
 
@@ -236,7 +236,7 @@ typedef struct ipmgmt_ipmp_update_arg_s {
 typedef struct ipmgmt_setaddr_arg_s {
 	ipmgmt_door_cmd_type_t	ia_cmd;
 	uint32_t		ia_flags;
-	size_t			ia_nvlsize;
+	uint32_t		ia_nvlsize;
 	/* packed nvl follows */
 } ipmgmt_setaddr_arg_t;
 
