@@ -447,6 +447,20 @@ out:
 }
 
 /*
+ * Copy the various checksum information that came in
+ * originally.
+ */
+static inline void
+cp_csum_dblk(const dblk_t *src, dblk_t *dst)
+{
+	dst->db_cksumstart = src->db_cksumstart;
+	dst->db_cksumend = src->db_cksumend;
+	dst->db_cksumstuff = src->db_cksumstuff;
+	bcopy(src->db_struioun.data, dst->db_struioun.data,
+	    sizeof (src->db_struioun.data));
+}
+
+/*
  * Allocate an mblk taking db_credp and db_cpid from the template.
  * Allow the cred to be NULL.
  */
@@ -466,6 +480,8 @@ allocb_tmpl(size_t size, const mblk_t *tmpl)
 			crhold(dst->db_credp = cr);
 		dst->db_cpid = cpid;
 		dst->db_type = src->db_type;
+
+		cp_csum_dblk(src, dst);
 	}
 	return (mp);
 }
@@ -1463,15 +1479,7 @@ copyb(mblk_t *bp)
 	nbp->b_band = bp->b_band;
 	ndp = nbp->b_datap;
 
-	/*
-	 * Copy the various checksum information that came in
-	 * originally.
-	 */
-	ndp->db_cksumstart = dp->db_cksumstart;
-	ndp->db_cksumend = dp->db_cksumend;
-	ndp->db_cksumstuff = dp->db_cksumstuff;
-	bcopy(dp->db_struioun.data, ndp->db_struioun.data,
-	    sizeof (dp->db_struioun.data));
+	cp_csum_dblk(dp, ndp);
 
 	/*
 	 * Well, here is a potential issue.  If we are trying to
