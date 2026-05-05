@@ -37,6 +37,8 @@
 
 #include <libefivar.h>
 
+#include "libefivar_impl.h"
+
 /* UEFI 2.10 caps a name at 1024 CHAR16; allow that much. */
 #define	EFI_NAME_BUF_CHARS	1024
 
@@ -64,13 +66,8 @@ efi_variables_supported(void)
 	return (0);
 }
 
-/*
- * Convert a NUL-terminated ASCII string into a freshly malloc()ed
- * NUL-terminated UCS-2 buffer. *dstsize_p is the byte count (including
- * the trailing NUL).
- */
-static int
-ascii_to_ucs2(const char *src, uint16_t **dst_p, size_t *dstsize_p)
+int
+_efivar_ascii_to_ucs2(const char *src, uint16_t **dst_p, size_t *dstsize_p)
 {
 	size_t len = strlen(src);
 	size_t i;
@@ -94,13 +91,8 @@ ascii_to_ucs2(const char *src, uint16_t **dst_p, size_t *dstsize_p)
 	return (0);
 }
 
-/*
- * Convert a UCS-2 buffer into a freshly malloc()ed UTF-8 string.
- * srcsize is the number of bytes in src (which may or may not include
- * a trailing NUL). Code points above 0x7f are replaced by '?'.
- */
-static int
-ucs2_to_ascii(const uint16_t *src, size_t srcsize, char **dst_p)
+int
+_efivar_ucs2_to_ascii(const uint16_t *src, size_t srcsize, char **dst_p)
 {
 	size_t nchar = srcsize / sizeof (uint16_t);
 	size_t i;
@@ -139,7 +131,7 @@ efi_get_variable(efi_guid_t vendor, const char *name, uint8_t **data_p,
 
 	if ((fd = efivar_open()) < 0)
 		return (-1);
-	if (ascii_to_ucs2(name, &name16, &name16size) < 0)
+	if (_efivar_ascii_to_ucs2(name, &name16, &name16size) < 0)
 		return (-1);
 
 	bzero(&v, sizeof (v));
@@ -199,7 +191,7 @@ efi_set_variable(efi_guid_t vendor, const char *name, const uint8_t *data,
 
 	if ((fd = efivar_open()) < 0)
 		return (-1);
-	if (ascii_to_ucs2(name, &name16, &name16size) < 0)
+	if (_efivar_ascii_to_ucs2(name, &name16, &name16size) < 0)
 		return (-1);
 
 	bzero(&v, sizeof (v));
@@ -248,7 +240,7 @@ efi_get_next_variable_name(efi_guid_t *vendor, char **name_p)
 		uint16_t *seed;
 		size_t seedsize;
 
-		if (ascii_to_ucs2(*name_p, &seed, &seedsize) < 0)
+		if (_efivar_ascii_to_ucs2(*name_p, &seed, &seedsize) < 0)
 			return (-1);
 		if (seedsize > sizeof (name16)) {
 			free(seed);
@@ -271,7 +263,7 @@ efi_get_next_variable_name(efi_guid_t *vendor, char **name_p)
 		return (-1);
 	}
 
-	if (ucs2_to_ascii(name16, v.namesize, &new_name) < 0) {
+	if (_efivar_ucs2_to_ascii(name16, v.namesize, &new_name) < 0) {
 		saved = errno;
 		errno = saved;
 		return (-1);
