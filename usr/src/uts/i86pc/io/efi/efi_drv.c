@@ -38,9 +38,11 @@
 #include <sys/ddi.h>
 #include <sys/efi.h>
 #include <sys/efiio.h>
+#include <sys/efi_runtime.h>
 #include <sys/errno.h>
 #include <sys/file.h>
 #include <sys/kmem.h>
+#include <sys/mach_mmu.h>
 #include <sys/modctl.h>
 #include <sys/policy.h>
 #include <sys/smp_impldefs.h>
@@ -69,6 +71,7 @@ typedef struct efi_state {
 	caddr_t		es_systab_va;	/* mapped View into the table   */
 	size_t		es_systab_len;
 	paddr_t		es_runtime_pa;	/* phys addr of Runtime Services */
+	efi_pt_t	*es_pt;		/* alt page table for RT calls */
 } efi_state_t;
 
 static efi_state_t *efi_state;
@@ -335,6 +338,7 @@ efi_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	efi_state_t *es;
 	uint32_t arch = 0;
 	paddr_t systab_pa;
+	uint_t nranges = 0;
 	int rc;
 
 	if (cmd != DDI_ATTACH)
@@ -370,8 +374,51 @@ efi_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 		return (DDI_FAILURE);
 	}
 
+	/*
+	 * Build the alternate page table that any future Runtime
+	 * Services call will switch CR3 to.  We need at minimum the
+	 * EFI memory ranges marked EFI_MEMORY_RUNTIME by the firmware,
+	 * plus the System Table page itself (the RuntimeServices
+	 * pointer is read from there at call time).  Without this
+	 * table the driver has no way to dispatch into firmware at
+	 * all, so we treat allocation/property failures as fatal for
+	 * this attach.
+	 */
+	rc = efi_pt_create(&es->es_pt);
+	if (rc != 0) {
+		efi_detach_systab(es);
+		mutex_destroy(&es->es_lock);
+		kmem_free(es, sizeof (*es));
+		return (DDI_FAILURE);
+	}
+
+	rc = efi_pt_apply_mmap(es->es_pt, &nranges);
+	if (rc != 0) {
+		cmn_err(CE_WARN,
+		    "efi: cannot apply EFI memory map (error %d)", rc);
+		efi_pt_destroy(es->es_pt);
+		efi_detach_systab(es);
+		mutex_destroy(&es->es_lock);
+		kmem_free(es, sizeof (*es));
+		return (DDI_FAILURE);
+	}
+
+	rc = efi_pt_map(es->es_pt, es->es_systab_pa,
+	    es->es_systab_len, PT_WRITABLE);
+	if (rc != 0) {
+		efi_pt_destroy(es->es_pt);
+		efi_detach_systab(es);
+		mutex_destroy(&es->es_lock);
+		kmem_free(es, sizeof (*es));
+		return (DDI_FAILURE);
+	}
+
+	cmn_err(CE_CONT, "?efi: mapped %u runtime range(s), alt CR3 = 0x%lx\n",
+	    nranges, (ulong_t)efi_pt_root_pa(es->es_pt));
+
 	if (ddi_create_minor_node(dip, "efi", S_IFCHR, 0, DDI_PSEUDO,
 	    0) != DDI_SUCCESS) {
+		efi_pt_destroy(es->es_pt);
 		efi_detach_systab(es);
 		mutex_destroy(&es->es_lock);
 		kmem_free(es, sizeof (*es));
@@ -394,6 +441,7 @@ efi_detach(dev_info_t *dip, ddi_detach_cmd_t cmd)
 		return (DDI_FAILURE);
 
 	ddi_remove_minor_node(dip, NULL);
+	efi_pt_destroy(es->es_pt);
 	efi_detach_systab(es);
 	mutex_destroy(&es->es_lock);
 	kmem_free(es, sizeof (*es));
