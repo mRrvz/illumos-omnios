@@ -102,6 +102,7 @@ HDRS=   $($(MACH)_HDRS)	\
 	lastlog.h	\
 	lber.h		\
 	ldap.h		\
+	libefivar.h	\
 	libelf.h	\
 	libgen.h	\
 	libintl.h	\
