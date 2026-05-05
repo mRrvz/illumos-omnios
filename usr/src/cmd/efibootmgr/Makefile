@@ -19,7 +19,7 @@ include ../Makefile.cmd
 include ../Makefile.cmd.64
 
 CFLAGS += $(CCVERBOSE)
-LDLIBS += -lefivar
+LDLIBS += -lefivar -lefi
 
 FILEMODE = 0555
 ROOTCMDDIR = $(ROOTUSRSBIN)
