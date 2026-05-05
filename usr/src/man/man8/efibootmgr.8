@@ -23,6 +23,7 @@ efibootmgr \- inspect and modify the UEFI Boot Manager
 \fBefibootmgr\fR \fB-n\fR \fINNNN\fR | \fB-N\fR
 \fBefibootmgr\fR \fB-t\fR \fIseconds\fR | \fB-T\fR
 \fBefibootmgr\fR {\fB-a\fR | \fB-A\fR} \fB-b\fR \fINNNN\fR
+\fBefibootmgr\fR \fB-f\fR | \fB-F\fR
 .fi
 .SH DESCRIPTION
 .LP
@@ -92,6 +93,23 @@ Human-readable label for the new entry. Default \fBOmniOS\fR.
 .BI -p " partnum"
 Partition number on \fIdisk\fR that the loader lives on (1-based; ESP
 is usually partition 1).
+.TP
+.BR -f " | " -F
+Set or clear the \fBBOOT_TO_FW_UI\fR bit in \fBOsIndications\fR.
+After \fB-f\fR, the next reboot drops into the firmware setup UI
+instead of running the boot manager. The firmware must advertise
+support via \fBOsIndicationsSupported\fR; if it does not, \fB-f\fR
+fails. The pair
+.RS
+.PP
+.RS 4
+.B
+efibootmgr -f && reboot
+.RE
+.PP
+is the userland equivalent of Linux's \fBsystemctl reboot
+\-\-firmware-setup\fR.
+.RE
 .TP
 .BI -n " NNNN"
 Set \fBBootNext\fR to the given entry. The firmware will boot it once

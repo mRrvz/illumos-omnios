@@ -513,6 +513,55 @@ do_delete(uint16_t bootnum)
 	bootorder_remove(bootnum);
 }
 
+/*
+ * Read a UINT64 variable (OsIndications / OsIndicationsSupported)
+ * into *out, treating ENOENT as a value of 0. Any other read failure
+ * is fatal.
+ */
+static uint64_t
+read_uint64_var(const char *name)
+{
+	uint8_t *data = NULL;
+	size_t sz = 0;
+	uint64_t v = 0;
+
+	if (efi_get_variable(efi_global_guid, name, &data, &sz, NULL) < 0) {
+		if (errno == ENOENT)
+			return (0);
+		err(1, "read %s", name);
+	}
+	if (sz == sizeof (uint64_t))
+		(void) memcpy(&v, data, sizeof (v));
+	free(data);
+	return (v);
+}
+
+static void
+do_set_fw_ui(int on)
+{
+	uint64_t supported, current, updated;
+
+	supported = read_uint64_var("OsIndicationsSupported");
+	if ((supported & EFI_OS_INDICATIONS_BOOT_TO_FW_UI) == 0)
+		errx(1, "firmware does not support boot-to-firmware UI");
+
+	current = read_uint64_var("OsIndications");
+	updated = on ? (current | EFI_OS_INDICATIONS_BOOT_TO_FW_UI)
+	    : (current & ~EFI_OS_INDICATIONS_BOOT_TO_FW_UI);
+
+	if (updated == current)
+		return;
+
+	if (updated == 0) {
+		do_del("OsIndications");
+		return;
+	}
+
+	if (efi_set_variable(efi_global_guid, "OsIndications",
+	    (uint8_t *)&updated, sizeof (updated), EFI_VAR_NV_BS_RT) < 0)
+		err(1, "write OsIndications");
+}
+
 static void
 do_set_active(uint16_t bootnum, int active)
 {
@@ -563,6 +612,7 @@ usage(FILE *fp)
 	    "       efibootmgr -n NNNN | -N\n"
 	    "       efibootmgr -t SECONDS | -T\n"
 	    "       efibootmgr {-a | -A} -b NNNN\n"
+	    "       efibootmgr -f | -F\n"
 	    "Boot entry numbers are four hexadecimal digits.\n");
 }
 
@@ -584,11 +634,12 @@ main(int argc, char **argv)
 	int new_timeout = -1;
 	int clear_timeout = 0;
 	int active_op = 0;
+	int fw_ui_op = 0;
 	uint16_t bootnum = 0;
 	int bootnum_seen = 0;
 	uint16_t parsed;
 
-	while ((ch = getopt(argc, argv, "vcBd:p:l:L:o:On:Nt:Tab:A")) != -1) {
+	while ((ch = getopt(argc, argv, "vcBd:p:l:L:o:On:Nt:Tab:AfF")) != -1) {
 		switch (ch) {
 		case 'v':
 			verbose = 1;
@@ -652,6 +703,12 @@ main(int argc, char **argv)
 		case 'A':
 			active_op = -1;
 			break;
+		case 'f':
+			fw_ui_op = 1;
+			break;
+		case 'F':
+			fw_ui_op = -1;
+			break;
 		case 'b':
 			if (parse_bootnum(optarg, &parsed) < 0)
 				errx(2, "invalid -b: %s", optarg);
@@ -699,6 +756,8 @@ main(int argc, char **argv)
 			errx(2, "-a / -A require -b NNNN");
 		do_set_active(bootnum, active_op > 0);
 	}
+	if (fw_ui_op != 0)
+		do_set_fw_ui(fw_ui_op > 0);
 
 	do_list(verbose);
 	return (0);

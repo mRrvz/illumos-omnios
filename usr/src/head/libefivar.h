@@ -118,6 +118,14 @@ typedef struct efi_load_option {
 	size_t		elo_optional_data_size;
 } efi_load_option_t;
 
+/*
+ * Bits in the OsIndications / OsIndicationsSupported variables (UEFI
+ * 2.10 section 8.5.4). The first one is the only one userland tools
+ * usually touch: setting it before reboot causes the firmware to
+ * enter its setup UI on the next boot.
+ */
+#define	EFI_OS_INDICATIONS_BOOT_TO_FW_UI		0x0000000000000001ULL
+
 /* EFI_LOAD_OPTION attribute bits we care about. */
 #define	EFI_LOAD_OPTION_ACTIVE		0x00000001U
 #define	EFI_LOAD_OPTION_FORCE_RECONNECT	0x00000002U
