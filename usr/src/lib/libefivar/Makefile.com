@@ -13,7 +13,7 @@
 
 LIBRARY =	libefivar.a
 VERS =		.1
-OBJECTS =	efivar.o
+OBJECTS =	efivar.o efi_load_option.o efi_devpath.o
 
 include ../../Makefile.lib
 

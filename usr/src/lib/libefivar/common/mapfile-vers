@@ -35,6 +35,17 @@ SYMBOL_VERSION ILLUMOS_0.1 {
 	efi_del_variable;
 	efi_get_next_variable_name;
 	efi_variables_supported;
+
+	efi_load_option_parse;
+	efi_load_option_build;
+	efi_load_option_clear;
+
+	efi_devpath_to_string;
+	efi_devpath_new;
+	efi_devpath_free;
+	efi_devpath_append_hd;
+	efi_devpath_append_file;
+	efi_devpath_finalize;
     local:
 	*;
 };
