@@ -50,6 +50,9 @@
 #include <sys/sunddi.h>
 #include <sys/sysmacros.h>
 #include <sys/types.h>
+#ifdef _MULTI_DATAMODEL
+#include <sys/types32.h>
+#endif
 
 /*
  * Sanity caps.  Real UEFI implementations typically allow names of at
@@ -71,8 +74,37 @@ typedef struct efi_state {
 	caddr_t		es_systab_va;	/* mapped View into the table   */
 	size_t		es_systab_len;
 	paddr_t		es_runtime_pa;	/* phys addr of Runtime Services */
+	efi_runtime_services_t *es_runtime_va;	/* mapped Runtime Services */
+	size_t		es_runtime_len;	/* mapped bytes */
 	efi_pt_t	*es_pt;		/* alt page table for RT calls */
 } efi_state_t;
+
+/*
+ * Translate a UEFI EFI_STATUS into an errno for userland.  Codes that
+ * we expect Variable Services to produce are mapped explicitly; less
+ * common ones collapse to EIO.
+ */
+static int
+efi_status_to_errno(EFI_STATUS s)
+{
+	if (s == EFI_SUCCESS)
+		return (0);
+	if (s == EFI_NOT_FOUND)
+		return (ENOENT);
+	if (s == EFI_BUFFER_TOO_SMALL)
+		return (EOVERFLOW);
+	if (s == EFI_INVALID_PARAMETER)
+		return (EINVAL);
+	if (s == EFI_OUT_OF_RESOURCES)
+		return (ENOMEM);
+	if (s == EFI_WRITE_PROTECTED)
+		return (EROFS);
+	if (s == EFI_SECURITY_VIOLATION)
+		return (EACCES);
+	if (s == EFI_DEVICE_ERROR)
+		return (EIO);
+	return (EIO);
+}
 
 static efi_state_t *efi_state;
 
@@ -159,6 +191,25 @@ efi_attach_systab(efi_state_t *es)
 	es->es_systab_len = maplen;
 	es->es_runtime_pa = rt_pa;
 
+	/*
+	 * Also keep a kernel-virtual mapping of the Runtime Services
+	 * table so the function pointers (which we cache outside the
+	 * critical CR3-swap region) are reachable from any kernel CR3,
+	 * not only the alternate one.
+	 */
+	es->es_runtime_len = sizeof (efi_runtime_services_t);
+	es->es_runtime_va = (efi_runtime_services_t *)psm_map_phys_new(
+	    es->es_runtime_pa, es->es_runtime_len, PROT_READ);
+	if (es->es_runtime_va == NULL) {
+		cmn_err(CE_WARN,
+		    "efi: failed to map Runtime Services at 0x%lx",
+		    (ulong_t)es->es_runtime_pa);
+		psm_unmap_phys(va, maplen);
+		es->es_systab_va = NULL;
+		es->es_systab_len = 0;
+		return (EIO);
+	}
+
 	cmn_err(CE_CONT, "?efi: %u-bit firmware rev %u.%02u, "
 	    "SystemTable@0x%lx, RuntimeServices@0x%lx\n",
 	    es->es_arch, EFI_REV_MAJOR(rev), EFI_REV_MINOR(rev),
@@ -170,11 +221,80 @@ efi_attach_systab(efi_state_t *es)
 static void
 efi_detach_systab(efi_state_t *es)
 {
+	if (es->es_runtime_va != NULL) {
+		psm_unmap_phys((caddr_t)es->es_runtime_va, es->es_runtime_len);
+		es->es_runtime_va = NULL;
+		es->es_runtime_len = 0;
+	}
 	if (es->es_systab_va != NULL) {
 		psm_unmap_phys(es->es_systab_va, es->es_systab_len);
 		es->es_systab_va = NULL;
 		es->es_systab_len = 0;
 	}
+}
+
+#ifdef _MULTI_DATAMODEL
+/*
+ * 32-bit shape of struct efi_var_ioc, used to translate ioctls coming
+ * from ILP32 callers.  The on-the-wire layout differs from the LP64
+ * struct because pointers and size_t shrink to 32 bits; without an
+ * explicit conversion the kernel would read garbage for namesize/
+ * datasize and fail to dereference the user buffers.
+ */
+struct efi_var_ioc32 {
+	caddr32_t	name;
+	uint32_t	namesize;
+	struct uuid	vendor;
+	uint32_t	attrib;
+	caddr32_t	data;
+	uint32_t	datasize;
+};
+#endif
+
+static int
+efi_copyin_ioc(intptr_t arg, struct efi_var_ioc *ku, int mode)
+{
+#ifdef _MULTI_DATAMODEL
+	if (ddi_model_convert_from(mode & FMODELS) == DDI_MODEL_ILP32) {
+		struct efi_var_ioc32 ku32;
+
+		if (ddi_copyin((void *)arg, &ku32, sizeof (ku32), mode) != 0)
+			return (EFAULT);
+		ku->name = (uint16_t *)(uintptr_t)ku32.name;
+		ku->namesize = ku32.namesize;
+		ku->vendor = ku32.vendor;
+		ku->attrib = ku32.attrib;
+		ku->data = (void *)(uintptr_t)ku32.data;
+		ku->datasize = ku32.datasize;
+		return (0);
+	}
+#endif
+	if (ddi_copyin((void *)arg, ku, sizeof (*ku), mode) != 0)
+		return (EFAULT);
+	return (0);
+}
+
+static int
+efi_copyout_ioc(struct efi_var_ioc *ku, intptr_t arg, int mode)
+{
+#ifdef _MULTI_DATAMODEL
+	if (ddi_model_convert_from(mode & FMODELS) == DDI_MODEL_ILP32) {
+		struct efi_var_ioc32 ku32;
+
+		ku32.name = (caddr32_t)(uintptr_t)ku->name;
+		ku32.namesize = (uint32_t)ku->namesize;
+		ku32.vendor = ku->vendor;
+		ku32.attrib = ku->attrib;
+		ku32.data = (caddr32_t)(uintptr_t)ku->data;
+		ku32.datasize = (uint32_t)ku->datasize;
+		if (ddi_copyout(&ku32, (void *)arg, sizeof (ku32), mode) != 0)
+			return (EFAULT);
+		return (0);
+	}
+#endif
+	if (ddi_copyout(ku, (void *)arg, sizeof (*ku), mode) != 0)
+		return (EFAULT);
+	return (0);
 }
 
 /*
@@ -289,25 +409,78 @@ efi_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *credp,
 	if (secpolicy_sys_config(credp, B_FALSE) != 0)
 		return (EPERM);
 
-	if (ddi_copyin((void *)arg, &ku, sizeof (ku), mode) != 0)
-		return (EFAULT);
+	rc = efi_copyin_ioc(arg, &ku, mode);
+	if (rc != 0)
+		return (rc);
 
 	rc = efi_copyin_var(&ku, &kv, mode);
 	if (rc != 0)
 		return (rc);
 
+	mutex_enter(&efi_state->es_lock);
+
 	switch (cmd) {
-	case EFIIOC_VAR_GET:
-	case EFIIOC_VAR_NEXT:
+	case EFIIOC_VAR_GET: {
+		EFI_GUID vendor = kv.vendor;
+		UINTN datasize = kv.datasize;
+		uint32_t attrib = 0;
+		EFI_STATUS s;
+
+		s = efi_call_get_variable(efi_state->es_pt,
+		    efi_state->es_runtime_va,
+		    (CHAR16 *)kv.name, &vendor, &attrib, &datasize, kv.data);
+
+		ku.attrib = attrib;
+		ku.datasize = datasize;
+		ku.vendor = vendor;
+
+		if (s == EFI_SUCCESS && datasize > 0 && kv.data != NULL) {
+			if (ddi_copyout(kv.data, ku.data, datasize, mode) != 0) {
+				rc = EFAULT;
+				break;
+			}
+		}
+		if (efi_copyout_ioc(&ku, arg, mode) != 0) {
+			rc = EFAULT;
+			break;
+		}
+		rc = efi_status_to_errno(s);
+		break;
+	}
+
+	case EFIIOC_VAR_NEXT: {
+		EFI_GUID vendor = kv.vendor;
+		UINTN namesize = kv.namesize;
+		EFI_STATUS s;
+
+		s = efi_call_get_next_variable_name(efi_state->es_pt,
+		    efi_state->es_runtime_va,
+		    &namesize, (CHAR16 *)kv.name, &vendor);
+
+		ku.namesize = namesize;
+		ku.vendor = vendor;
+
+		if (s == EFI_SUCCESS) {
+			if (ddi_copyout(kv.name, ku.name, namesize,
+			    mode) != 0) {
+				rc = EFAULT;
+				break;
+			}
+		}
+		if (efi_copyout_ioc(&ku, arg, mode) != 0) {
+			rc = EFAULT;
+			break;
+		}
+		rc = efi_status_to_errno(s);
+		break;
+	}
+
 	case EFIIOC_VAR_SET:
-		/*
-		 * Real Runtime Services dispatch arrives in a
-		 * follow-up commit; for now we expose the ABI but
-		 * have no working transport.
-		 */
 		rc = ENOTSUP;
 		break;
 	}
+
+	mutex_exit(&efi_state->es_lock);
 
 	efi_free_var(&kv);
 	return (rc);

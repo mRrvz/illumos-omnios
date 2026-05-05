@@ -30,12 +30,82 @@
 #define	_SYS_EFI_RUNTIME_H
 
 #include <sys/types.h>
+#include <sys/efi.h>
+#include <sys/uuid.h>
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
 
 #ifdef	_KERNEL
+
+/*
+ * UEFI calls use the Microsoft x64 calling convention (rcx, rdx, r8,
+ * r9, ...).  Mark every Runtime Services function pointer so the
+ * compiler emits the correct prologue at the call site.
+ */
+#if defined(__x86_64__) || defined(__amd64)
+#define	EFIAPI	__attribute__((ms_abi))
+#else
+#define	EFIAPI
+#endif
+
+/*
+ * Subset of UEFI types we need to talk to Runtime Services.  Names
+ * mirror the UEFI 2.10 specification.
+ */
+typedef uintptr_t	EFI_STATUS;
+typedef uint16_t	CHAR16;
+typedef uint64_t	UINTN;
+typedef struct uuid	EFI_GUID;
+
+#define	EFI_ERROR(s)		(((EFI_STATUS)(s) >> 63) != 0)
+#define	EFI_SUCCESS		((EFI_STATUS)0)
+
+/*
+ * Status codes used by Variable Services.  Numeric values come from
+ * Appendix D of the UEFI 2.10 specification (high bit set marks
+ * errors).
+ */
+#define	EFI_INVALID_PARAMETER	(((EFI_STATUS)1 << 63) | 2)
+#define	EFI_BUFFER_TOO_SMALL	(((EFI_STATUS)1 << 63) | 5)
+#define	EFI_DEVICE_ERROR	(((EFI_STATUS)1 << 63) | 7)
+#define	EFI_WRITE_PROTECTED	(((EFI_STATUS)1 << 63) | 8)
+#define	EFI_OUT_OF_RESOURCES	(((EFI_STATUS)1 << 63) | 9)
+#define	EFI_NOT_FOUND		(((EFI_STATUS)1 << 63) | 14)
+#define	EFI_SECURITY_VIOLATION	(((EFI_STATUS)1 << 63) | 26)
+
+typedef EFI_STATUS (EFIAPI *EFI_GET_VARIABLE)(CHAR16 *, EFI_GUID *,
+    uint32_t *, UINTN *, void *);
+typedef EFI_STATUS (EFIAPI *EFI_GET_NEXT_VARIABLE_NAME)(UINTN *, CHAR16 *,
+    EFI_GUID *);
+typedef EFI_STATUS (EFIAPI *EFI_SET_VARIABLE)(CHAR16 *, EFI_GUID *,
+    uint32_t, UINTN, void *);
+
+/*
+ * EFI Runtime Services Table (UEFI 2.10, section 4.5).  We only need
+ * to call into Variable Services, but the layout above the variable
+ * pointers must be preserved so the offsets line up with what the
+ * firmware published.  Untyped pointers are used for the entries we
+ * never invoke.
+ */
+typedef struct efi_runtime_services {
+	EFI_TABLE_HEADER	rs_hdr;
+	void			*rs_get_time;
+	void			*rs_set_time;
+	void			*rs_get_wakeup_time;
+	void			*rs_set_wakeup_time;
+	void			*rs_set_virtual_address_map;
+	void			*rs_convert_pointer;
+	EFI_GET_VARIABLE	rs_get_variable;
+	EFI_GET_NEXT_VARIABLE_NAME rs_get_next_variable_name;
+	EFI_SET_VARIABLE	rs_set_variable;
+	void			*rs_get_next_high_monotonic_count;
+	void			*rs_reset_system;
+	void			*rs_update_capsule;
+	void			*rs_query_capsule_capabilities;
+	void			*rs_query_variable_info;
+} efi_runtime_services_t;
 
 typedef struct efi_pt efi_pt_t;
 
@@ -71,6 +141,21 @@ extern int efi_pt_apply_mmap(efi_pt_t *, uint_t *nrangesp);
  * Physical address suitable for setcr3().
  */
 extern paddr_t efi_pt_root_pa(const efi_pt_t *);
+
+/*
+ * Invoke a Runtime Services function via the alternate page table.
+ * Around the call the wrapper masks interrupts, claims the FPU for
+ * kernel use (UEFI is allowed to touch SSE/AVX state), saves the
+ * current CR3 and reloads it from the supplied efi_pt_t.  These
+ * routines are the only sanctioned way for the rest of the driver to
+ * dispatch into firmware.
+ */
+extern EFI_STATUS efi_call_get_variable(efi_pt_t *, efi_runtime_services_t *,
+    CHAR16 *name, EFI_GUID *vendor, uint32_t *attrib, UINTN *datasize,
+    void *data);
+
+extern EFI_STATUS efi_call_get_next_variable_name(efi_pt_t *,
+    efi_runtime_services_t *, UINTN *namesize, CHAR16 *name, EFI_GUID *vendor);
 
 #endif	/* _KERNEL */
 
