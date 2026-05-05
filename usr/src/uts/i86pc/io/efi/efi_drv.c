@@ -475,9 +475,31 @@ efi_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *credp,
 		break;
 	}
 
-	case EFIIOC_VAR_SET:
-		rc = ENOTSUP;
+	case EFIIOC_VAR_SET: {
+		EFI_GUID vendor = kv.vendor;
+		EFI_STATUS s;
+
+		/*
+		 * For SET the userland data buffer is an input. GET/NEXT
+		 * leave kv.data zero-filled, so copy it in here. A zero
+		 * datasize is legal: per UEFI 8.2.3 it deletes the variable.
+		 */
+		if (kv.datasize > 0 && ku.data != NULL) {
+			if (ddi_copyin(ku.data, kv.data, kv.datasize,
+			    mode) != 0) {
+				rc = EFAULT;
+				break;
+			}
+		}
+
+		s = efi_call_set_variable(efi_state->es_pt,
+		    efi_state->es_runtime_va,
+		    (CHAR16 *)kv.name, &vendor, kv.attrib, kv.datasize,
+		    kv.datasize > 0 ? kv.data : NULL);
+
+		rc = efi_status_to_errno(s);
 		break;
+	}
 	}
 
 	mutex_exit(&efi_state->es_lock);
