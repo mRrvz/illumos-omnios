@@ -36,9 +36,11 @@
  * driver soft-state lock.
  */
 
+#include <sys/archsystm.h>
 #include <sys/cmn_err.h>
 #include <sys/ddi.h>
 #include <sys/efi.h>
+#include <sys/kfpu.h>
 #include <sys/kmem.h>
 #include <sys/list.h>
 #include <sys/mach_mmu.h>
@@ -267,6 +269,101 @@ paddr_t
 efi_pt_root_pa(const efi_pt_t *pt)
 {
 	return (pt->ept_pml4_pa);
+}
+
+/*
+ * Switch CR3 to the alternate page table and invoke a Runtime Services
+ * function pointer.  Interrupts are masked and the FPU is claimed for
+ * kernel use across the call: UEFI is allowed to touch SSE/AVX state,
+ * and any interrupt handler dispatched while CR3 points at the alt
+ * table would lack the user portion of the address space.
+ *
+ * Inline so the compiler keeps everything between the CR3 load and
+ * restore on a small, predictable body of code mapped by the kernel
+ * half of both page tables.
+ */
+static inline EFI_STATUS
+efi_call_dispatch(efi_pt_t *pt, EFI_STATUS (*invoke)(void *), void *cookie)
+{
+	ulong_t saved_cr3;
+	ulong_t saved_flags;
+	EFI_STATUS status;
+
+	kernel_fpu_begin(NULL, KFPU_NO_STATE);
+	saved_flags = intr_clear();
+	saved_cr3 = getcr3();
+
+	setcr3((ulong_t)efi_pt_root_pa(pt));
+	status = invoke(cookie);
+	setcr3(saved_cr3);
+
+	intr_restore(saved_flags);
+	kernel_fpu_end(NULL, KFPU_NO_STATE);
+
+	return (status);
+}
+
+struct efi_get_variable_args {
+	EFI_GET_VARIABLE	getvar;
+	CHAR16			*name;
+	EFI_GUID		*vendor;
+	uint32_t		*attrib;
+	UINTN			*datasize;
+	void			*data;
+};
+
+static EFI_STATUS
+efi_invoke_get_variable(void *cookie)
+{
+	struct efi_get_variable_args *a = cookie;
+
+	return (a->getvar(a->name, a->vendor, a->attrib, a->datasize, a->data));
+}
+
+EFI_STATUS
+efi_call_get_variable(efi_pt_t *pt, efi_runtime_services_t *rs,
+    CHAR16 *name, EFI_GUID *vendor, uint32_t *attrib, UINTN *datasize,
+    void *data)
+{
+	struct efi_get_variable_args args;
+
+	args.getvar = rs->rs_get_variable;
+	args.name = name;
+	args.vendor = vendor;
+	args.attrib = attrib;
+	args.datasize = datasize;
+	args.data = data;
+
+	return (efi_call_dispatch(pt, efi_invoke_get_variable, &args));
+}
+
+struct efi_get_next_args {
+	EFI_GET_NEXT_VARIABLE_NAME	getnext;
+	UINTN				*namesize;
+	CHAR16				*name;
+	EFI_GUID			*vendor;
+};
+
+static EFI_STATUS
+efi_invoke_get_next(void *cookie)
+{
+	struct efi_get_next_args *a = cookie;
+
+	return (a->getnext(a->namesize, a->name, a->vendor));
+}
+
+EFI_STATUS
+efi_call_get_next_variable_name(efi_pt_t *pt, efi_runtime_services_t *rs,
+    UINTN *namesize, CHAR16 *name, EFI_GUID *vendor)
+{
+	struct efi_get_next_args args;
+
+	args.getnext = rs->rs_get_next_variable_name;
+	args.namesize = namesize;
+	args.name = name;
+	args.vendor = vendor;
+
+	return (efi_call_dispatch(pt, efi_invoke_get_next, &args));
 }
 
 int
