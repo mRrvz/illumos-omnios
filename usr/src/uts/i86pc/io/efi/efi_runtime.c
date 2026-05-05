@@ -366,6 +366,40 @@ efi_call_get_next_variable_name(efi_pt_t *pt, efi_runtime_services_t *rs,
 	return (efi_call_dispatch(pt, efi_invoke_get_next, &args));
 }
 
+struct efi_set_variable_args {
+	EFI_SET_VARIABLE	setvar;
+	CHAR16			*name;
+	EFI_GUID		*vendor;
+	uint32_t		attrib;
+	UINTN			datasize;
+	void			*data;
+};
+
+static EFI_STATUS
+efi_invoke_set_variable(void *cookie)
+{
+	struct efi_set_variable_args *a = cookie;
+
+	return (a->setvar(a->name, a->vendor, a->attrib, a->datasize, a->data));
+}
+
+EFI_STATUS
+efi_call_set_variable(efi_pt_t *pt, efi_runtime_services_t *rs,
+    CHAR16 *name, EFI_GUID *vendor, uint32_t attrib, UINTN datasize,
+    void *data)
+{
+	struct efi_set_variable_args args;
+
+	args.setvar = rs->rs_set_variable;
+	args.name = name;
+	args.vendor = vendor;
+	args.attrib = attrib;
+	args.datasize = datasize;
+	args.data = data;
+
+	return (efi_call_dispatch(pt, efi_invoke_set_variable, &args));
+}
+
 int
 efi_pt_apply_mmap(efi_pt_t *pt, uint_t *nrangesp)
 {

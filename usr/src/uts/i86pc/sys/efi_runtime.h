@@ -157,6 +157,10 @@ extern EFI_STATUS efi_call_get_variable(efi_pt_t *, efi_runtime_services_t *,
 extern EFI_STATUS efi_call_get_next_variable_name(efi_pt_t *,
     efi_runtime_services_t *, UINTN *namesize, CHAR16 *name, EFI_GUID *vendor);
 
+extern EFI_STATUS efi_call_set_variable(efi_pt_t *, efi_runtime_services_t *,
+    CHAR16 *name, EFI_GUID *vendor, uint32_t attrib, UINTN datasize,
+    void *data);
+
 #endif	/* _KERNEL */
 
 #ifdef	__cplusplus
