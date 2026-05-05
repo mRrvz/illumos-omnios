@@ -28,6 +28,7 @@
 #ifndef	_SYS_EFIIO_H
 #define	_SYS_EFIIO_H
 
+#include <sys/ioccom.h>
 #include <sys/types.h>
 #include <sys/uuid.h>
 
