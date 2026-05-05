@@ -17,6 +17,8 @@ efibootmgr \- inspect and modify the UEFI Boot Manager
 .LP
 .nf
 \fBefibootmgr\fR [\fB-v\fR]
+\fBefibootmgr\fR \fB-c\fR \fB-d\fR \fIdisk\fR \fB-p\fR \fIpartnum\fR \fB-l\fR \fIloader\fR [\fB-L\fR \fIlabel\fR]
+\fBefibootmgr\fR \fB-B\fR \fB-b\fR \fINNNN\fR
 \fBefibootmgr\fR \fB-o\fR \fIBootOrder\fR | \fB-O\fR
 \fBefibootmgr\fR \fB-n\fR \fINNNN\fR | \fB-N\fR
 \fBefibootmgr\fR \fB-t\fR \fIseconds\fR | \fB-T\fR
@@ -62,8 +64,34 @@ Set or clear the \fBLOAD_OPTION_ACTIVE\fR bit on the entry selected
 with \fB-b\fR. Inactive entries are skipped by the boot manager.
 .TP
 .BI -b " NNNN"
-Boot entry to operate on, in hexadecimal. Used together with \fB-a\fR
-or \fB-A\fR.
+Boot entry to operate on, in hexadecimal. Used together with \fB-a\fR,
+\fB-A\fR or \fB-B\fR.
+.TP
+.B -B
+Delete the \fBBootNNNN\fR entry selected with \fB-b\fR and remove its
+number from \fBBootOrder\fR.
+.TP
+.B -c
+Create a new \fBBootNNNN\fR entry. The lowest unused number is
+allocated, the entry is set active, and its number is prepended to
+\fBBootOrder\fR. Requires \fB-d\fR, \fB-p\fR and \fB-l\fR; \fB-L\fR
+sets the user-visible label (default \fBOmniOS\fR).
+.TP
+.BI -d " disk"
+Disk to read the GPT from. Either a full \fI/dev/rdsk/\fR path or a
+controller form like \fIc0t0d0\fR (translated to
+\fI/dev/rdsk/c0t0d0p0\fR).
+.TP
+.BI -l " loader"
+UEFI loader path inside the ESP, using backslashes as separators
+(e.g. \fI\\\\EFI\\\\omnios\\\\loader.efi\fR).
+.TP
+.BI -L " label"
+Human-readable label for the new entry. Default \fBOmniOS\fR.
+.TP
+.BI -p " partnum"
+Partition number on \fIdisk\fR that the loader lives on (1-based; ESP
+is usually partition 1).
 .TP
 .BI -n " NNNN"
 Set \fBBootNext\fR to the given entry. The firmware will boot it once

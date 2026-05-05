@@ -28,13 +28,16 @@
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <libefivar.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/efi_partition.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -283,6 +286,254 @@ do_del(const char *varname)
 	}
 }
 
+/*
+ * Open a raw disk for GPT inspection. The argument is either an
+ * absolute path that we open as is, or a controller-style name that
+ * we translate to /dev/rdsk/<arg>p0 (the conventional whole-disk
+ * raw node on i86pc).
+ */
+static int
+open_raw_disk(const char *spec)
+{
+	char path[PATH_MAX];
+	int fd;
+
+	if (spec[0] == '/')
+		return (open(spec, O_RDONLY));
+	(void) snprintf(path, sizeof (path), "/dev/rdsk/%sp0", spec);
+	fd = open(path, O_RDONLY);
+	if (fd < 0 && errno == ENOENT) {
+		(void) snprintf(path, sizeof (path), "/dev/rdsk/%s", spec);
+		fd = open(path, O_RDONLY);
+	}
+	return (fd);
+}
+
+/*
+ * Walk the variables in the global namespace and report the lowest
+ * BootNNNN slot that is currently free, returning it in *out. Returns
+ * 0 on success or -1 with errno set.
+ */
+static int
+find_free_bootnum(uint16_t *out)
+{
+	uint8_t taken[0x10000 / 8];
+	char *name = NULL;
+	efi_guid_t vendor;
+	uint32_t i;
+
+	bzero(taken, sizeof (taken));
+
+	while (efi_get_next_variable_name(&vendor, &name) == 0) {
+		unsigned long v;
+		if (!guid_eq(&vendor, &efi_global_guid))
+			continue;
+		if (!is_boot_var_name(name))
+			continue;
+		v = strtoul(name + 4, NULL, 16);
+		taken[v / 8] |= 1u << (v % 8);
+	}
+	if (errno != ENOENT)
+		return (-1);
+
+	for (i = 0; i < 0x10000; i++) {
+		if ((taken[i / 8] & (1u << (i % 8))) == 0) {
+			*out = (uint16_t)i;
+			return (0);
+		}
+	}
+	errno = ENOSPC;
+	return (-1);
+}
+
+/*
+ * Insert a bootnum at the head of the BootOrder array (creating it if
+ * absent). Existing duplicates of the same number are removed first.
+ */
+static void
+bootorder_prepend(uint16_t bootnum)
+{
+	uint8_t *data = NULL;
+	size_t sz = 0;
+	uint16_t *cur;
+	size_t ncur, i;
+	uint16_t *new;
+	size_t nnew = 0;
+
+	if (efi_get_variable(efi_global_guid, "BootOrder", &data, &sz,
+	    NULL) < 0) {
+		if (errno != ENOENT)
+			err(1, "read BootOrder");
+		sz = 0;
+	}
+	cur = (uint16_t *)data;
+	ncur = sz / sizeof (uint16_t);
+
+	new = malloc((ncur + 1) * sizeof (uint16_t));
+	if (new == NULL)
+		err(1, "malloc");
+	new[nnew++] = bootnum;
+	for (i = 0; i < ncur; i++) {
+		if (cur[i] != bootnum)
+			new[nnew++] = cur[i];
+	}
+	free(data);
+
+	if (efi_set_variable(efi_global_guid, "BootOrder", (uint8_t *)new,
+	    nnew * sizeof (uint16_t), EFI_VAR_NV_BS_RT) < 0) {
+		free(new);
+		err(1, "write BootOrder");
+	}
+	free(new);
+}
+
+/*
+ * Remove a bootnum from BootOrder. No-op if BootOrder is absent or
+ * the number is not present.
+ */
+static void
+bootorder_remove(uint16_t bootnum)
+{
+	uint8_t *data = NULL;
+	size_t sz = 0;
+	uint16_t *cur;
+	size_t ncur, i, nnew = 0;
+	uint16_t *new;
+
+	if (efi_get_variable(efi_global_guid, "BootOrder", &data, &sz,
+	    NULL) < 0) {
+		if (errno == ENOENT)
+			return;
+		err(1, "read BootOrder");
+	}
+	cur = (uint16_t *)data;
+	ncur = sz / sizeof (uint16_t);
+
+	new = malloc(ncur * sizeof (uint16_t));
+	if (new == NULL)
+		err(1, "malloc");
+	for (i = 0; i < ncur; i++) {
+		if (cur[i] != bootnum)
+			new[nnew++] = cur[i];
+	}
+	free(data);
+
+	if (nnew == ncur) {
+		free(new);
+		return;
+	}
+
+	if (efi_set_variable(efi_global_guid, "BootOrder", (uint8_t *)new,
+	    nnew * sizeof (uint16_t), EFI_VAR_NV_BS_RT) < 0) {
+		free(new);
+		err(1, "write BootOrder");
+	}
+	free(new);
+}
+
+static void
+do_create(const char *disk, int partnum, const char *label,
+    const char *loader)
+{
+	int fd;
+	struct dk_gpt *gpt = NULL;
+	struct dk_part *part;
+	uint8_t signature[16];
+	efi_devpath_builder_t *b;
+	uint8_t *devpath = NULL;
+	size_t devpath_size = 0;
+	efi_load_option_t lo;
+	uint8_t *blob = NULL;
+	size_t blob_size = 0;
+	uint16_t bootnum;
+	char varname[16];
+
+	if (disk == NULL || loader == NULL || partnum <= 0)
+		errx(2, "-c needs -d, -p and -l");
+	if (label == NULL)
+		label = "OmniOS";
+
+	fd = open_raw_disk(disk);
+	if (fd < 0)
+		err(1, "open %s", disk);
+	if (efi_alloc_and_read(fd, &gpt) < 0) {
+		(void) close(fd);
+		errx(1, "%s does not have a GPT label", disk);
+	}
+	(void) close(fd);
+
+	if ((uint_t)(partnum - 1) >= gpt->efi_nparts) {
+		efi_free(gpt);
+		errx(1, "partition %d is out of range (1..%u)", partnum,
+		    gpt->efi_nparts);
+	}
+	part = &gpt->efi_parts[partnum - 1];
+
+	(void) memcpy(signature, &part->p_uguid, sizeof (signature));
+
+	b = efi_devpath_new();
+	if (b == NULL)
+		err(1, "devpath builder");
+	if (efi_devpath_append_hd(b, (uint32_t)partnum,
+	    (uint64_t)part->p_start, (uint64_t)part->p_size, signature,
+	    EFI_DEVPATH_HD_MBR_TYPE_GPT,
+	    EFI_DEVPATH_HD_SIG_TYPE_GUID) < 0) {
+		efi_devpath_free(b);
+		efi_free(gpt);
+		err(1, "devpath HD");
+	}
+	if (efi_devpath_append_file(b, loader) < 0) {
+		efi_devpath_free(b);
+		efi_free(gpt);
+		err(1, "devpath File");
+	}
+	if (efi_devpath_finalize(b, &devpath, &devpath_size) < 0) {
+		efi_devpath_free(b);
+		efi_free(gpt);
+		err(1, "devpath finalize");
+	}
+	efi_devpath_free(b);
+	efi_free(gpt);
+
+	bzero(&lo, sizeof (lo));
+	lo.elo_attributes = EFI_LOAD_OPTION_ACTIVE;
+	lo.elo_description = (char *)label;
+	lo.elo_device_path = devpath;
+	lo.elo_device_path_size = devpath_size;
+
+	if (efi_load_option_build(&lo, &blob, &blob_size) < 0) {
+		free(devpath);
+		err(1, "build load option");
+	}
+	free(devpath);
+
+	if (find_free_bootnum(&bootnum) < 0) {
+		free(blob);
+		err(1, "find free Boot####");
+	}
+	(void) snprintf(varname, sizeof (varname), "Boot%04X", bootnum);
+
+	if (efi_set_variable(efi_global_guid, varname, blob, blob_size,
+	    EFI_VAR_NV_BS_RT) < 0) {
+		free(blob);
+		err(1, "write %s", varname);
+	}
+	free(blob);
+
+	bootorder_prepend(bootnum);
+}
+
+static void
+do_delete(uint16_t bootnum)
+{
+	char name[16];
+
+	(void) snprintf(name, sizeof (name), "Boot%04X", bootnum);
+	if (efi_del_variable(efi_global_guid, name) < 0 && errno != ENOENT)
+		err(1, "delete %s", name);
+	bootorder_remove(bootnum);
+}
+
 static void
 do_set_active(uint16_t bootnum, int active)
 {
@@ -327,6 +578,8 @@ usage(FILE *fp)
 {
 	(void) fprintf(fp,
 	    "usage: efibootmgr [-v]\n"
+	    "       efibootmgr -c -d disk -p partnum -l loader [-L label]\n"
+	    "       efibootmgr -B -b NNNN\n"
 	    "       efibootmgr -o NNNN[,NNNN...] | -O\n"
 	    "       efibootmgr -n NNNN | -N\n"
 	    "       efibootmgr -t SECONDS | -T\n"
@@ -339,6 +592,12 @@ main(int argc, char **argv)
 {
 	int ch;
 	int verbose = 0;
+	int create = 0;
+	int del = 0;
+	const char *disk = NULL;
+	const char *loader = NULL;
+	const char *label = NULL;
+	int partnum = 0;
 	const char *new_bootorder = NULL;
 	int clear_bootorder = 0;
 	int new_bootnext = -1;
@@ -350,10 +609,36 @@ main(int argc, char **argv)
 	int bootnum_seen = 0;
 	uint16_t parsed;
 
-	while ((ch = getopt(argc, argv, "vo:On:Nt:Tab:A")) != -1) {
+	while ((ch = getopt(argc, argv, "vcBd:p:l:L:o:On:Nt:Tab:A")) != -1) {
 		switch (ch) {
 		case 'v':
 			verbose = 1;
+			break;
+		case 'c':
+			create = 1;
+			break;
+		case 'B':
+			del = 1;
+			break;
+		case 'd':
+			disk = optarg;
+			break;
+		case 'p': {
+			char *end;
+			unsigned long v;
+			errno = 0;
+			v = strtoul(optarg, &end, 0);
+			if (errno != 0 || *end != '\0' || v == 0 ||
+			    v > INT_MAX)
+				errx(2, "invalid -p: %s", optarg);
+			partnum = (int)v;
+			break;
+		}
+		case 'l':
+			loader = optarg;
+			break;
+		case 'L':
+			label = optarg;
 			break;
 		case 'o':
 			new_bootorder = optarg;
@@ -403,10 +688,21 @@ main(int argc, char **argv)
 		usage(stderr);
 		return (2);
 	}
+	if (create && del) {
+		usage(stderr);
+		return (2);
+	}
 
 	if (efi_variables_supported() < 0)
 		err(1, "/dev/efi");
 
+	if (create)
+		do_create(disk, partnum, label, loader);
+	if (del) {
+		if (!bootnum_seen)
+			errx(2, "-B requires -b NNNN");
+		do_delete(bootnum);
+	}
 	if (new_bootorder != NULL)
 		do_set_bootorder(new_bootorder);
 	if (clear_bootorder)
