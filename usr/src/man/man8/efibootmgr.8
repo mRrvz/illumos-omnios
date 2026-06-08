@@ -1,0 +1,147 @@
+.\"
+.\" This file and its contents are supplied under the terms of the
+.\" Common Development and Distribution License ("CDDL"), version 1.0.
+.\" You may only use this file in accordance with the terms of version
+.\" 1.0 of the CDDL.
+.\"
+.\" A full copy of the text of the CDDL should have accompanied this
+.\" source.  A copy of the CDDL is also available via the Internet at
+.\" http://www.illumos.org/license/CDDL.
+.\"
+.\" Copyright 2026 Argo Technology East
+.\"
+.TH EFIBOOTMGR 8 "May 5, 2026"
+.SH NAME
+efibootmgr \- inspect and modify the UEFI Boot Manager
+.SH SYNOPSIS
+.LP
+.nf
+\fBefibootmgr\fR [\fB-v\fR]
+\fBefibootmgr\fR \fB-c\fR \fB-d\fR \fIdisk\fR \fB-p\fR \fIpartnum\fR \fB-l\fR \fIloader\fR [\fB-L\fR \fIlabel\fR]
+\fBefibootmgr\fR \fB-B\fR \fB-b\fR \fINNNN\fR
+\fBefibootmgr\fR \fB-o\fR \fIBootOrder\fR | \fB-O\fR
+\fBefibootmgr\fR \fB-n\fR \fINNNN\fR | \fB-N\fR
+\fBefibootmgr\fR \fB-t\fR \fIseconds\fR | \fB-T\fR
+\fBefibootmgr\fR {\fB-a\fR | \fB-A\fR} \fB-b\fR \fINNNN\fR
+\fBefibootmgr\fR \fB-f\fR | \fB-F\fR
+.fi
+.SH DESCRIPTION
+.LP
+The \fBefibootmgr\fR utility displays and updates the boot configuration
+held by the UEFI firmware in non-volatile RAM. The configuration is a
+set of UEFI variables in the global namespace
+(\fB8be4df61-93ca-11d2-aa0d-00e098032b8c\fR), the most important of which
+are:
+.RS 4
+.PP
+\fBBootOrder\fR \(em the sequence in which the firmware tries the boot
+entries listed below.
+.PP
+\fBBootNNNN\fR \(em an individual boot entry, where \fINNNN\fR is a
+four-hex-digit identifier; each one names a description and a UEFI
+device path that points to a loader.
+.PP
+\fBBootCurrent\fR \(em the entry the firmware actually used on the
+current boot.  Read-only from the operating system's perspective.
+.PP
+\fBBootNext\fR \(em an override that, when present, makes the firmware
+boot the named entry once and then revert to \fBBootOrder\fR.
+.PP
+\fBTimeout\fR \(em how many seconds the firmware shows its menu before
+booting \fBBootOrder[0]\fR.
+.RE
+.LP
+Without arguments, \fBefibootmgr\fR prints the current state of these
+variables, one per line, with each \fBBootNNNN\fR rendered on its own
+line. After every successful mutation the same listing is printed
+again.
+.SH OPTIONS
+.LP
+The following options are supported. All of them require the kernel
+\fBefi\fR(4D) driver and \fBPRIV_SYS_CONFIG\fR.
+.TP
+.BR -a " | " -A
+Set or clear the \fBLOAD_OPTION_ACTIVE\fR bit on the entry selected
+with \fB-b\fR. Inactive entries are skipped by the boot manager.
+.TP
+.BI -b " NNNN"
+Boot entry to operate on, in hexadecimal. Used together with \fB-a\fR,
+\fB-A\fR or \fB-B\fR.
+.TP
+.B -B
+Delete the \fBBootNNNN\fR entry selected with \fB-b\fR and remove its
+number from \fBBootOrder\fR.
+.TP
+.B -c
+Create a new \fBBootNNNN\fR entry. The lowest unused number is
+allocated, the entry is set active, and its number is prepended to
+\fBBootOrder\fR. Requires \fB-d\fR, \fB-p\fR and \fB-l\fR; \fB-L\fR
+sets the user-visible label (default \fBOmniOS\fR).
+.TP
+.BI -d " disk"
+Disk to read the GPT from. Either a full \fI/dev/rdsk/\fR path or a
+controller form like \fIc0t0d0\fR (translated to
+\fI/dev/rdsk/c0t0d0p0\fR).
+.TP
+.BI -l " loader"
+UEFI loader path inside the ESP, using backslashes as separators
+(e.g. \fI\\\\EFI\\\\omnios\\\\loader.efi\fR).
+.TP
+.BI -L " label"
+Human-readable label for the new entry. Default \fBOmniOS\fR.
+.TP
+.BI -p " partnum"
+Partition number on \fIdisk\fR that the loader lives on (1-based; ESP
+is usually partition 1).
+.TP
+.BR -f " | " -F
+Set or clear the \fBBOOT_TO_FW_UI\fR bit in \fBOsIndications\fR.
+After \fB-f\fR, the next reboot drops into the firmware setup UI
+instead of running the boot manager. The firmware must advertise
+support via \fBOsIndicationsSupported\fR; if it does not, \fB-f\fR
+fails. The pair
+.RS
+.PP
+.RS 4
+.B
+efibootmgr -f && reboot
+.RE
+.PP
+is the userland equivalent of Linux's \fBsystemctl reboot
+\-\-firmware-setup\fR.
+.RE
+.TP
+.BI -n " NNNN"
+Set \fBBootNext\fR to the given entry. The firmware will boot it once
+and then return to \fBBootOrder\fR.
+.TP
+.B -N
+Delete \fBBootNext\fR.
+.TP
+.BI -o " BootOrder"
+Set \fBBootOrder\fR. \fIBootOrder\fR is a comma-separated list of
+boot entry numbers in hex, e.g. \fB0001,0000,0002\fR.
+.TP
+.B -O
+Delete \fBBootOrder\fR.
+.TP
+.BI -t " SECONDS"
+Set \fBTimeout\fR.
+.TP
+.B -T
+Delete \fBTimeout\fR.
+.TP
+.B -v
+When listing, also print the EFI device path of every entry.
+.SH EXIT STATUS
+.LP
+0 on success, 1 on a runtime error (firmware or driver), 2 on a usage
+error.
+.SH FILES
+.TP
+.B /dev/efi
+UEFI Runtime Services driver.
+.SH SEE ALSO
+.LP
+.BR efivar (3LIB),
+.BR uefi (5)

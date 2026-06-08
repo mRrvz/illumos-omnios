@@ -27,6 +27,7 @@ tools/
 usr/src/cmd/bhhwcompat/bhhwcompat
 usr/src/cmd/cdpadm/cdpadm
 usr/src/cmd/cmd-inet/usr.lib/in.cdpd/in.cdpd
+usr/src/cmd/efibootmgr/efibootmgr
 usr/src/cmd/hyperv/kvp/hv_kvp_daemon
 usr/src/cmd/hyperv/scripts/hv_get_dhcp_info
 usr/src/cmd/hyperv/scripts/hv_get_dns_info
