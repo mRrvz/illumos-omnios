@@ -595,6 +595,18 @@ static dladm_stat_desc_t  dladm_stat_table[] = {
 };
 
 /* Internal functions */
+void
+dladm_link_stat_free(dladm_stat_chain_t *curr)
+{
+	while (curr != NULL) {
+		dladm_stat_chain_t	*tofree = curr;
+
+		curr = curr->dc_next;
+		free(tofree->dc_statentry);
+		free(tofree);
+	}
+}
+
 static void *
 dlstat_diff_stats(void *arg1, void *arg2, dladm_stat_type_t stattype)
 {
@@ -2350,18 +2362,6 @@ dladm_link_stat_diffchain(dladm_stat_chain_t *op1, dladm_stat_chain_t *op2,
 	}
 done:
 	return (diff_head);
-}
-
-void
-dladm_link_stat_free(dladm_stat_chain_t *curr)
-{
-	while (curr != NULL) {
-		dladm_stat_chain_t	*tofree = curr;
-
-		curr = curr->dc_next;
-		free(tofree->dc_statentry);
-		free(tofree);
-	}
 }
 
 /* Query all link stats */
